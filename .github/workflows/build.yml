@@ -21,12 +21,26 @@ jobs:
           arduino-cli core install arduino:avr
           arduino-cli lib install LiquidCrystal
 
-      - name: Comprobar que el sketch es valido
-        run: |
-          echo "Carpeta del sketch: $(basename $PWD)"
-          echo "Archivos .ino encontrados:"
-          ls -1 *.ino
-          echo "El nombre del .ino DEBE coincidir con el de la carpeta."
-
       - name: Compilar
-        run: arduino-cli compile --fqbn arduino:avr:uno --warnings all .
+        run: |
+          # arduino-cli exige que la carpeta se llame igual que el .ino.
+          # En lugar de depender de eso, detectamos el sketch y lo
+          # copiamos a una carpeta con el nombre correcto.
+          shopt -s nullglob
+          INOS=(*.ino)
+          if [ ${#INOS[@]} -eq 0 ]; then
+            echo "::error::No hay ningun .ino en la raiz del repositorio"
+            echo "Contenido actual:"
+            ls -la
+            exit 1
+          fi
+          INO="${INOS[0]}"
+          echo "Sketch detectado: $INO"
+
+          mkdir -p /tmp/ci/sketch
+          cp "$INO" /tmp/ci/sketch/sketch.ino
+
+          arduino-cli compile \
+            --fqbn arduino:avr:uno \
+            --warnings all \
+            /tmp/ci/sketch

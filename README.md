@@ -4,7 +4,7 @@
 
 > Firmware para Arduino Uno que convierte un **LCD de 16x2 caracteres** en una pequeña consola de escritorio: reloj, Snake, test de reflejos y Pomodoro.
 
-**[▶ Probar en el navegador](https://wokwi.com/projects/TU_ID)** — simulación completa con LCD, botones y zumbador. No hace falta comprar nada para jugar al Snake.
+**[▶ Probar en el navegador](https://wokwi.com/projects/470545207464552449)** — simulación completa con LCD, botones y zumbador. No hace falta comprar nada para jugar al Snake.
 
 **Consola 1602** es un firmware en C++ que saca todo el partido posible a la pantalla más barata que existe. Sobre un LCD de dos líneas, cinco botones y un zumbador, funcionan cuatro aplicaciones con menú, sonido y ajustes que sobreviven al apagón. La arquitectura es una **máquina de estados** en la que cada aplicación es un módulo independiente, sin una sola llamada bloqueante en el bucle principal.
 

@@ -12,14 +12,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Compilar para Arduino Uno
-        uses: arduino/compile-sketches@v1
-        with:
-          fqbn: arduino:avr:uno
-          # arduino-cli no trae LiquidCrystal preinstalada como el IDE
-          libraries: |
-            - name: LiquidCrystal
-          sketch-paths: |
-            - ./
-          enable-warnings-report: true
-          verbose: false
+      - name: Instalar arduino-cli
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Preparar core y librerias
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr
+          arduino-cli lib install LiquidCrystal
+
+      - name: Comprobar que el sketch es valido
+        run: |
+          echo "Carpeta del sketch: $(basename $PWD)"
+          echo "Archivos .ino encontrados:"
+          ls -1 *.ino
+          echo "El nombre del .ino DEBE coincidir con el de la carpeta."
+
+      - name: Compilar
+        run: arduino-cli compile --fqbn arduino:avr:uno --warnings all .

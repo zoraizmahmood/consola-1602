@@ -1,0 +1,10 @@
+# Compilacion de Arduino
+build/
+*.hex
+*.elf
+*.bin
+*.eep
+
+# Sistema
+.DS_Store
+Thumbs.db

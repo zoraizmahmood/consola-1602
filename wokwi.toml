@@ -1,0 +1,7 @@
+# Para la extension de Wokwi en VS Code.
+# Compila antes con:
+#   arduino-cli compile --fqbn arduino:avr:uno --output-dir build .
+[wokwi]
+version = 1
+firmware = "build/Consola-1602.ino.hex"
+elf = "build/Consola-1602.ino.elf"

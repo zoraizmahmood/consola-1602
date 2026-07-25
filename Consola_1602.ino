@@ -2,9 +2,9 @@
    CONSOLA 1602  -  Arduino Uno R3 + LCD 16x2 paralelo
    5 botones + buzzer activo. Sin RTC (reloj por software).
 
-   ESQUELETO v0.1: nucleo + menu + reloj + notas + ajustes.
-   Snake / Reflejos / Pomodoro quedan como stubs listos para
-   rellenar (ya tienen enter/loop y salida con OK largo).
+   v1.0: reloj, Snake, reflejos, Pomodoro, notas, sistema y
+   ajustes. Cada aplicacion es un modulo con enter()/loop() y el
+   bucle principal no bloquea nunca.
 
    ---------------------------------------------------------
    CONEXIONES
@@ -161,7 +161,7 @@ inline void sndAlarm() { beep(3, 250, 150); }
 
 /* ================ AJUSTES EN EEPROM ======================= */
 #define CFG_MAGIC   0xC1
-#define CFG_VERSION 2
+#define CFG_VERSION 3
 #define CFG_ADDR    0
 
 struct Cfg {
@@ -173,6 +173,7 @@ struct Cfg {
   uint16_t snakeHi;       // record Snake
   uint16_t reflexBest;    // mejor tiempo de reflejos (ms)
   uint8_t  pomoWork, pomoBreak, pomoCycles;
+  int8_t   tempOffset;    // calibracion del sensor interno
 };
 Cfg cfg;
 
@@ -186,6 +187,7 @@ void cfgDefaults() {
   cfg.mute = 0; cfg.brightness = 100; cfg.blTimeout = 0;
   cfg.calib = 0; cfg.snakeHi = 0; cfg.reflexBest = 0;
   cfg.pomoWork = 25; cfg.pomoBreak = 5; cfg.pomoCycles = 4;
+  cfg.tempOffset = 0;
 }
 void cfgLoad() {
   EEPROM.get(CFG_ADDR, cfg);
@@ -317,7 +319,7 @@ void print2(uint8_t v) { if (v < 10) lcd.print('0'); lcd.print(v); }
    =========================================================== */
 enum AppId {
   APP_HOME = 0, APP_MENU, APP_SNAKE, APP_REFLEX,
-  APP_POMO, APP_NOTES, APP_SETTINGS, APP_COUNT
+  APP_POMO, APP_NOTES, APP_STATS, APP_SETTINGS, APP_COUNT
 };
 
 AppId    appCur = APP_HOME;
@@ -364,14 +366,16 @@ const char mnu0[] PROGMEM = "Snake";
 const char mnu1[] PROGMEM = "Reflejos";
 const char mnu2[] PROGMEM = "Pomodoro";
 const char mnu3[] PROGMEM = "Notas";
-const char mnu4[] PROGMEM = "Ajustes";
-const char mnu5[] PROGMEM = "Reloj";
+const char mnu4[] PROGMEM = "Sistema";
+const char mnu5[] PROGMEM = "Ajustes";
+const char mnu6[] PROGMEM = "Reloj";
 
 struct MenuItem { PGM_P name; uint8_t app; };
 const MenuItem MENU[] = {
   { mnu0, APP_SNAKE  }, { mnu1, APP_REFLEX   },
   { mnu2, APP_POMO   }, { mnu3, APP_NOTES    },
-  { mnu4, APP_SETTINGS }, { mnu5, APP_HOME   }
+  { mnu4, APP_STATS }, { mnu5, APP_SETTINGS },
+  { mnu6, APP_HOME  }
 };
 const uint8_t MENU_N = sizeof(MENU) / sizeof(MENU[0]);
 
@@ -533,13 +537,15 @@ void settings_loop() {
       }
       case ST_BRILLO: {
         int16_t v = cfg.brightness + d * 32;
-        if (v < 32) v = 32; if (v > 255) v = 255;
+        if (v < 32) v = 32;
+        if (v > 255) v = 255;
         cfg.brightness = v; backlightApply(cfg.brightness);
         break;
       }
       case ST_CALIB: {
         int32_t v = cfg.calib + d * 10;
-        if (v < -2000) v = -2000; if (v > 2000) v = 2000;
+        if (v < -2000) v = -2000;
+        if (v > 2000) v = 2000;
         cfg.calib = v;
         break;
       }
@@ -950,6 +956,80 @@ void snake_loop() {
   if (longP(B_OK)) { sndBack(); switchTo(APP_MENU); }
 }
 
+/* ======================= SISTEMA ==========================
+   Voltaje real de alimentacion, temperatura del chip, RAM libre
+   y tiempo encendido. Sin un solo componente adicional: todo
+   sale de perifericos internos del ATmega328P.
+   =========================================================== */
+
+// RAM libre = hueco entre el final del monton y la pila
+int freeRam() {
+  extern int __heap_start, *__brkval;
+  int v;
+  return (int)&v - (__brkval == 0 ? (int)&__heap_start : (int)__brkval);
+}
+
+// Mide AVcc comparandolo con la referencia interna de 1,1 V.
+// El truco: en vez de medir una tension con Vcc como referencia,
+// se mide la referencia usando Vcc como escala y se despeja.
+uint16_t readVccMv() {
+  ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
+  delayMicroseconds(2000);          // asentar la referencia
+  ADCSRA |= _BV(ADSC);
+  while (ADCSRA & _BV(ADSC));
+  uint16_t adc = ADC;
+  if (!adc) return 0;
+  return (uint16_t)(1125300L / adc);            // 1,1 * 1023 * 1000
+}
+
+// Sensor de temperatura interno, canal 8 del ADC. El datasheet da
+// unos 1 mV/C y ~324 cuentas a 25 C, pero SIN CALIBRAR el error
+// es de +-10 C: de ahi el offset ajustable.
+int16_t readTempC() {
+  ADMUX = _BV(REFS1) | _BV(REFS0) | _BV(MUX3);
+  delayMicroseconds(2000);
+  ADCSRA |= _BV(ADSC);
+  while (ADCSRA & _BV(ADSC));
+  int16_t adc = ADC;
+  return adc - 324 + 25 + cfg.tempOffset;
+}
+
+uint32_t stT = 0;
+
+void stats_draw() {
+  uint16_t mv = readVccMv();
+  int16_t  tc = readTempC();
+  int      fr = freeRam();
+  uint32_t up = millis() / 1000UL;
+
+  clearRow(0);
+  lcd.setCursor(0, 0);
+  lcd.print(mv / 1000); lcd.print('.');
+  uint8_t cent = (mv % 1000) / 10;
+  if (cent < 10) lcd.print('0');
+  lcd.print(cent); lcd.print('V');
+  lcd.setCursor(9, 0);
+  lcd.print(tc); lcd.write(223); lcd.print('C');   // 223 = simbolo de grado
+
+  clearRow(1);
+  lcd.setCursor(0, 1);
+  lcd.print(F("RAM ")); lcd.print(fr);
+  lcd.setCursor(9, 1);
+  lcd.print(up / 3600UL); lcd.print('h');
+  uint8_t mi = (up / 60UL) % 60UL;
+  if (mi < 10) lcd.print('0');
+  lcd.print(mi); lcd.print('m');
+}
+
+void stats_enter() { lcd.clear(); stats_draw(); stT = millis(); }
+void stats_loop() {
+  if (millis() - stT > 1000) { stT = millis(); stats_draw(); }
+  // calibracion del sensor de temperatura
+  if (rep(B_UP)   && cfg.tempOffset <  40) { cfg.tempOffset++; sndMove(); stats_draw(); }
+  if (rep(B_DOWN) && cfg.tempOffset > -40) { cfg.tempOffset--; sndMove(); stats_draw(); }
+  if (longP(B_OK)) { cfgSave(); sndBack(); switchTo(APP_MENU); }
+}
+
 /* ================ TABLA DE APLICACIONES =================== */
 struct App { void (*enter)(); void (*loop)(); };
 const App APPS[APP_COUNT] = {
@@ -959,6 +1039,7 @@ const App APPS[APP_COUNT] = {
   { reflex_enter,   reflex_loop   },   // APP_REFLEX
   { pomo_enter,     pomo_loop     },   // APP_POMO
   { notes_enter,    notes_loop    },   // APP_NOTES
+  { stats_enter,    stats_loop    },   // APP_STATS
   { settings_enter, settings_loop }    // APP_SETTINGS
 };
 
@@ -989,7 +1070,7 @@ void setup() {
 
   lcd.clear();
   printAt(2, 0, F("CONSOLA 1602"));
-  printAt(4, 1, F("v0.1"));
+  printAt(6, 1, F("v1.0"));
   beep(1, 80, 0);
   uint32_t t0 = millis();       // espera sin bloquear el buzzer:
   while (millis() - t0 < 900) { // con delay() se quedaba pitando

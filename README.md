@@ -4,6 +4,8 @@
 
 > Firmware para Arduino Uno que convierte un **LCD de 16x2 caracteres** en una pequeña consola de escritorio: reloj, Snake, test de reflejos y Pomodoro.
 
+**[▶ Probar en el navegador](https://wokwi.com/projects/TU_ID)** — simulación completa con LCD, botones y zumbador. No hace falta comprar nada para jugar al Snake.
+
 **Consola 1602** es un firmware en C++ que saca todo el partido posible a la pantalla más barata que existe. Sobre un LCD de dos líneas, cinco botones y un zumbador, funcionan cuatro aplicaciones con menú, sonido y ajustes que sobreviven al apagón. La arquitectura es una **máquina de estados** en la que cada aplicación es un módulo independiente, sin una sola llamada bloqueante en el bucle principal.
 
 <p align="center">
@@ -24,6 +26,7 @@
 - **Reloj por software** calibrable en milisegundos por hora, sin necesidad de un módulo RTC.
 - **Retroiluminación** regulable por PWM con apagado automático por inactividad.
 - **Firmware sin bloqueos**: ni un `delay()` en el bucle principal.
+- **Diagnóstico del sistema**: voltaje real de alimentación, temperatura del chip, RAM libre y tiempo encendido, todo leído de periféricos internos del ATmega328P sin un solo componente extra.
 - **Carcasa imprimible en 3D**, con el modelo editable de Fusion 360 y el STL listo para laminar.
 
 ---
@@ -48,6 +51,7 @@ Cinco botones para todo. La convención es la misma en cada aplicación:
 | Reflejos   | `OK` empieza · pulsa la flecha que indique la pantalla                 |
 | Pomodoro   | `OK` arranca y pausa · `►` salta de fase · `◄` reinicia la fase        |
 | Notas      | `◄` `►` cambian de nota · `OK` alterna el modo automático              |
+| Sistema    | `▲` `▼` calibran el sensor de temperatura                              |
 | Ajustes    | `▲` `▼` eligen · `◄` `►` modifican · `OK` mantenido guarda y sale      |
 
 ---
@@ -145,11 +149,40 @@ También puedes abrir `Consola-1602.ino` directamente en el IDE de Arduino y sub
 
 ---
 
+## Simular en el navegador
+
+El repositorio incluye un `diagram.json` de [Wokwi](https://wokwi.com), que simula el ATmega328P instrucción a instrucción. Sirve para dos cosas: probar el firmware sin tener el hardware delante, y como **descripción formal del cableado** — más fiable que las tablas de arriba, porque es lo que se ejecuta.
+
+Para abrirlo: crea un proyecto nuevo de Arduino Uno en Wokwi, pega el contenido de `Consola-1602.ino` en la pestaña del sketch y el de `diagram.json` en la del diagrama.
+
+Con la extensión de Wokwi para VS Code, el `wokwi.toml` ya está preparado:
+
+```bash
+arduino-cli compile --fqbn arduino:avr:uno --output-dir build .
+```
+
+---
+
+## Presupuesto de memoria
+
+| Recurso                  | Uso      | Máximo del Uno | Ocupación |
+|--------------------------|----------|----------------|-----------|
+| Memoria de programa      | 15 844 B | 32 256 B       | 48 %      |
+| RAM (variables globales) | 696 B    | 2 048 B        | 34 %      |
+
+La CI mide ambas cifras en cada push y **falla si el firmware supera los 24 KB de programa o los 1,2 KB de RAM**, dejando margen para la pila. Las cifras de cada compilación quedan publicadas en el resumen de la ejecución.
+
+El margen sale de dos decisiones: todas las cadenas literales viven en memoria de programa mediante `F()` y `PROGMEM`, y las estructuras grandes —el tablero de Snake y su cuerpo— se dimensionan de forma estática, sin reservas dinámicas.
+
+---
+
 ## Estructura del proyecto
 
 ```
 Consola-1602/
 ├── Consola-1602.ino    # Firmware completo
+├── diagram.json        # Cableado para el simulador de Wokwi
+├── wokwi.toml          # Configuración de la extensión de VS Code
 ├── hardware/
 │   ├── carcasa.f3d     # Modelo editable de Fusion 360
 │   └── carcasa.stl     # Malla lista para imprimir

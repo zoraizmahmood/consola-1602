@@ -1,0 +1,69 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  FLASH_LIMIT: 24000    # bytes de programa (maximo real del Uno: 32256)
+  RAM_LIMIT: 1200       # bytes de variables globales (maximo: 2048)
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar arduino-cli
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Preparar core y librerias
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr
+          arduino-cli lib install LiquidCrystal
+
+      - name: Compilar y comprobar el presupuesto de memoria
+        run: |
+          set -o pipefail
+          shopt -s nullglob
+          INOS=(*.ino)
+          if [ ${#INOS[@]} -eq 0 ]; then
+            echo "::error::No hay ningun .ino en la raiz del repositorio"
+            ls -la
+            exit 1
+          fi
+          INO="${INOS[0]}"
+          echo "Sketch detectado: $INO"
+
+          # arduino-cli exige que la carpeta se llame igual que el .ino
+          mkdir -p /tmp/ci/sketch
+          cp "$INO" /tmp/ci/sketch/sketch.ino
+
+          arduino-cli compile --fqbn arduino:avr:uno \
+            --warnings all /tmp/ci/sketch 2>&1 | tee compile.log
+
+          FLASH=$(grep -oE 'Sketch uses [0-9]+' compile.log | grep -oE '[0-9]+')
+          RAM=$(grep -oE 'Global variables use [0-9]+' compile.log | grep -oE '[0-9]+')
+
+          {
+            echo "### Presupuesto de memoria"
+            echo ""
+            echo "| Recurso | Uso | Limite | Maximo del Uno |"
+            echo "|---|---|---|---|"
+            echo "| Programa | ${FLASH} B | ${FLASH_LIMIT} B | 32256 B |"
+            echo "| RAM | ${RAM} B | ${RAM_LIMIT} B | 2048 B |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          FAIL=0
+          if [ "$FLASH" -gt "$FLASH_LIMIT" ]; then
+            echo "::error::Programa ${FLASH} B supera el limite de ${FLASH_LIMIT} B"
+            FAIL=1
+          fi
+          if [ "$RAM" -gt "$RAM_LIMIT" ]; then
+            echo "::error::RAM ${RAM} B supera el limite de ${RAM_LIMIT} B"
+            FAIL=1
+          fi
+          exit $FAIL

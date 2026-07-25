@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "author": "zoraizmahmood",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "wokwi-arduino-uno", "id": "uno", "top": 180, "left": 0, "attrs": {} },
+    { "type": "wokwi-lcd1602", "id": "lcd1", "top": -80, "left": 60,
+      "attrs": { "pins": "full", "background": "blue", "color": "white" } },
+    { "type": "wokwi-potentiometer", "id": "pot1", "top": 40, "left": 380,
+      "attrs": { "value": "50" } },
+    { "type": "wokwi-resistor", "id": "r1", "top": 100, "left": 300,
+      "attrs": { "value": "220" } },
+    { "type": "wokwi-pushbutton", "id": "btnUp",    "top": 400, "left": 100,
+      "attrs": { "color": "green", "label": "ARRIBA" } },
+    { "type": "wokwi-pushbutton", "id": "btnDown",  "top": 490, "left": 100,
+      "attrs": { "color": "green", "label": "ABAJO" } },
+    { "type": "wokwi-pushbutton", "id": "btnLeft",  "top": 445, "left": 20,
+      "attrs": { "color": "green", "label": "IZQ" } },
+    { "type": "wokwi-pushbutton", "id": "btnRight", "top": 445, "left": 180,
+      "attrs": { "color": "green", "label": "DER" } },
+    { "type": "wokwi-pushbutton", "id": "btnOk",    "top": 445, "left": 290,
+      "attrs": { "color": "red", "label": "OK" } },
+    { "type": "wokwi-buzzer", "id": "bz1", "top": 380, "left": 400,
+      "attrs": { "volume": "0.1" } }
+  ],
+  "connections": [
+    [ "uno:GND.1", "lcd1:VSS", "black", [] ],
+    [ "uno:5V",    "lcd1:VDD", "red",   [] ],
+    [ "pot1:SIG",  "lcd1:V0",  "gray",  [] ],
+    [ "pot1:GND",  "uno:GND.1","black", [] ],
+    [ "pot1:VCC",  "uno:5V",   "red",   [] ],
+
+    [ "uno:12", "lcd1:RS", "green",  [] ],
+    [ "uno:GND.1", "lcd1:RW", "black", [] ],
+    [ "uno:11", "lcd1:E",  "green",  [] ],
+    [ "uno:5",  "lcd1:D4", "blue",   [] ],
+    [ "uno:4",  "lcd1:D5", "blue",   [] ],
+    [ "uno:3",  "lcd1:D6", "blue",   [] ],
+    [ "uno:2",  "lcd1:D7", "blue",   [] ],
+
+    [ "lcd1:A", "r1:1",  "orange", [] ],
+    [ "r1:2",   "uno:9", "orange", [] ],
+    [ "lcd1:K", "uno:GND.1", "black", [] ],
+
+    [ "btnUp:1.l",    "uno:6",     "purple", [] ],
+    [ "btnUp:2.l",    "uno:GND.2", "black",  [] ],
+    [ "btnDown:1.l",  "uno:7",     "purple", [] ],
+    [ "btnDown:2.l",  "uno:GND.2", "black",  [] ],
+    [ "btnLeft:1.l",  "uno:10",    "purple", [] ],
+    [ "btnLeft:2.l",  "uno:GND.2", "black",  [] ],
+    [ "btnRight:1.l", "uno:A0",    "purple", [] ],
+    [ "btnRight:2.l", "uno:GND.2", "black",  [] ],
+    [ "btnOk:1.l",    "uno:A1",    "purple", [] ],
+    [ "btnOk:2.l",    "uno:GND.2", "black",  [] ],
+
+    [ "bz1:1", "uno:8",     "yellow", [] ],
+    [ "bz1:2", "uno:GND.3", "black",  [] ]
+  ],
+  "dependencies": {}
+}

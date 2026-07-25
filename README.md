@@ -2,7 +2,7 @@
 
 ![build](https://github.com/zoraizmahmood/Consola-1602/actions/workflows/build.yml/badge.svg)
 
-> Firmware para Arduino Uno que convierte un **LCD de 16x2 caracteres** en una pequeña consola de escritorio: reloj, Snake, test de reflejos y Pomodoro.
+> Firmware para Arduino Uno que convierte un **LCD de 16x2 caracteres** en una pequeña consola de escritorio: reloj, tres juegos, Pomodoro y diagnóstico del sistema.
 
 **[▶ Probar en el navegador](https://wokwi.com/projects/TU_ID)** — simulación completa con LCD, botones y zumbador. No hace falta comprar nada para jugar al Snake.
 
@@ -18,6 +18,8 @@
 
 - **Reloj** con dígitos grandes de dos filas de altura, construidos con caracteres definidos a medida en la CGRAM del display.
 - **Snake** sobre un tablero real de 16x4: cada celda del LCD se divide en mitad superior e inferior para doblar la resolución vertical.
+- **Dino runner** sobre la misma rejilla de 16x4, reutilizando el array de Snake: los dos juegos nunca corren a la vez, así que comparten 64 bytes de RAM.
+- **Simon** de hasta 32 pasos. Con el zumbador activo cada botón se identifica por su ritmo; cambiando una constante pasa a cuatro notas si montas uno pasivo.
 - **Test de reflejos** de cinco rondas con espera aleatoria, penalización por adelantarse y cálculo del tiempo medio.
 - **Pomodoro** con cuenta atrás en dígitos grandes, ciclos configurables y notas contextuales en cada cambio de fase.
 - **Notas** rotativas navegables, almacenadas en memoria de programa para no gastar RAM.
@@ -48,6 +50,8 @@ Cinco botones para todo. La convención es la misma en cada aplicación:
 |------------|------------------------------------------------------------------------|
 | Reloj      | `OK` abre el menú                                                      |
 | Snake      | Dirección con las cuatro flechas · `OK` pausa · `OK` reinicia al morir |
+| Dino       | `▲` salta · `OK` pausa · `OK` reinicia al morir                        |
+| Simon      | Repite la secuencia con las cuatro flechas                             |
 | Reflejos   | `OK` empieza · pulsa la flecha que indique la pantalla                 |
 | Pomodoro   | `OK` arranca y pausa · `►` salta de fase · `◄` reinicia la fase        |
 | Notas      | `◄` `►` cambian de nota · `OK` alterna el modo automático              |
@@ -167,12 +171,12 @@ arduino-cli compile --fqbn arduino:avr:uno --output-dir build .
 
 | Recurso                  | Uso      | Máximo del Uno | Ocupación |
 |--------------------------|----------|----------------|-----------|
-| Memoria de programa      | 15 844 B | 32 256 B       | 48 %      |
-| RAM (variables globales) | 696 B    | 2 048 B        | 34 %      |
+| Memoria de programa      | 18 036 B | 32 256 B       | 55 %      |
+| RAM (variables globales) | 818 B    | 2 048 B        | 40 %      |
 
 La CI mide ambas cifras en cada push y **falla si el firmware supera los 24 KB de programa o los 1,2 KB de RAM**, dejando margen para la pila. Las cifras de cada compilación quedan publicadas en el resumen de la ejecución.
 
-El margen sale de dos decisiones: todas las cadenas literales viven en memoria de programa mediante `F()` y `PROGMEM`, y las estructuras grandes —el tablero de Snake y su cuerpo— se dimensionan de forma estática, sin reservas dinámicas.
+El margen sale de tres decisiones: todas las cadenas literales viven en memoria de programa mediante `F()` y `PROGMEM`, las estructuras grandes se dimensionan de forma estática sin reservas dinámicas, y los juegos que no pueden coincidir en el tiempo comparten el mismo búfer de tablero.
 
 ---
 

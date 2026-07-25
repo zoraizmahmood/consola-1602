@@ -2,9 +2,9 @@
    CONSOLA 1602  -  Arduino Uno R3 + LCD 16x2 paralelo
    5 botones + buzzer activo. Sin RTC (reloj por software).
 
-   v1.0: reloj, Snake, reflejos, Pomodoro, notas, sistema y
-   ajustes. Cada aplicacion es un modulo con enter()/loop() y el
-   bucle principal no bloquea nunca.
+   v1.1: reloj, Snake, Dino, Simon, reflejos, Pomodoro, notas,
+   sistema y ajustes. Cada aplicacion es un modulo con
+   enter()/loop() y el bucle principal no bloquea nunca.
 
    ---------------------------------------------------------
    CONEXIONES
@@ -49,6 +49,8 @@
 LiquidCrystal lcd(12, 11, 5, 4, 3, 2);   // RS, E, D4, D5, D6, D7
 
 #define PIN_BUZZER        8
+#define PASSIVE_BUZZER    0   // 1 si cambias a un zumbador pasivo:
+                              // Simon pasa de ritmos a notas
 #define PIN_BACKLIGHT     9
 #define USE_BACKLIGHT_PIN 1              // 0 = retro siempre fija a 5V
 
@@ -161,7 +163,7 @@ inline void sndAlarm() { beep(3, 250, 150); }
 
 /* ================ AJUSTES EN EEPROM ======================= */
 #define CFG_MAGIC   0xC1
-#define CFG_VERSION 3
+#define CFG_VERSION 4
 #define CFG_ADDR    0
 
 struct Cfg {
@@ -174,6 +176,8 @@ struct Cfg {
   uint16_t reflexBest;    // mejor tiempo de reflejos (ms)
   uint8_t  pomoWork, pomoBreak, pomoCycles;
   int8_t   tempOffset;    // calibracion del sensor interno
+  uint16_t dinoHi;        // record del Dino
+  uint8_t  simonHi;       // secuencia mas larga en Simon
 };
 Cfg cfg;
 
@@ -187,7 +191,7 @@ void cfgDefaults() {
   cfg.mute = 0; cfg.brightness = 100; cfg.blTimeout = 0;
   cfg.calib = 0; cfg.snakeHi = 0; cfg.reflexBest = 0;
   cfg.pomoWork = 25; cfg.pomoBreak = 5; cfg.pomoCycles = 4;
-  cfg.tempOffset = 0;
+  cfg.tempOffset = 0; cfg.dinoHi = 0; cfg.simonHi = 0;
 }
 void cfgLoad() {
   EEPROM.get(CFG_ADDR, cfg);
@@ -318,8 +322,9 @@ void print2(uint8_t v) { if (v < 10) lcd.print('0'); lcd.print(v); }
    y una linea en las tablas del final.
    =========================================================== */
 enum AppId {
-  APP_HOME = 0, APP_MENU, APP_SNAKE, APP_REFLEX,
-  APP_POMO, APP_NOTES, APP_STATS, APP_SETTINGS, APP_COUNT
+  APP_HOME = 0, APP_MENU, APP_SNAKE, APP_DINO, APP_SIMON,
+  APP_REFLEX, APP_POMO, APP_NOTES, APP_STATS, APP_SETTINGS,
+  APP_COUNT
 };
 
 AppId    appCur = APP_HOME;
@@ -363,19 +368,22 @@ void home_loop() {
 
 /* ------------------------ MENU ---------------------------- */
 const char mnu0[] PROGMEM = "Snake";
-const char mnu1[] PROGMEM = "Reflejos";
-const char mnu2[] PROGMEM = "Pomodoro";
-const char mnu3[] PROGMEM = "Notas";
-const char mnu4[] PROGMEM = "Sistema";
-const char mnu5[] PROGMEM = "Ajustes";
-const char mnu6[] PROGMEM = "Reloj";
+const char mnu1[] PROGMEM = "Dino";
+const char mnu2[] PROGMEM = "Simon";
+const char mnu3[] PROGMEM = "Reflejos";
+const char mnu4[] PROGMEM = "Pomodoro";
+const char mnu5[] PROGMEM = "Notas";
+const char mnu6[] PROGMEM = "Sistema";
+const char mnu7[] PROGMEM = "Ajustes";
+const char mnu8[] PROGMEM = "Reloj";
 
 struct MenuItem { PGM_P name; uint8_t app; };
 const MenuItem MENU[] = {
-  { mnu0, APP_SNAKE  }, { mnu1, APP_REFLEX   },
-  { mnu2, APP_POMO   }, { mnu3, APP_NOTES    },
-  { mnu4, APP_STATS }, { mnu5, APP_SETTINGS },
-  { mnu6, APP_HOME  }
+  { mnu0, APP_SNAKE  }, { mnu1, APP_DINO     },
+  { mnu2, APP_SIMON  }, { mnu3, APP_REFLEX   },
+  { mnu4, APP_POMO   }, { mnu5, APP_NOTES    },
+  { mnu6, APP_STATS  }, { mnu7, APP_SETTINGS },
+  { mnu8, APP_HOME   }
 };
 const uint8_t MENU_N = sizeof(MENU) / sizeof(MENU[0]);
 
@@ -956,6 +964,226 @@ void snake_loop() {
   if (longP(B_OK)) { sndBack(); switchTo(APP_MENU); }
 }
 
+/* ========================= DINO ===========================
+   Corredor infinito sobre la misma rejilla de 16x4 que Snake, y
+   sobre el mismo array: los dos juegos nunca corren a la vez, asi
+   que reutilizar snkGrid ahorra 64 bytes de RAM. Los cactus se
+   dibujan como bloques y el dino como punto, que es lo que los
+   distingue de un vistazo.
+   =========================================================== */
+#define DN_W 16
+
+const int8_t DN_ARC[] = { 2, 1, 0, 0, 1, 2 };   // filas durante el salto
+#define DN_AIR (int8_t)(sizeof(DN_ARC))
+
+uint8_t  dnObst[DN_W];      // 0 nada, 1 cactus bajo, 2 cactus alto
+uint8_t  dnDinoY, dnGap;
+int8_t   dnJump;            // fase del salto, -1 si esta en el suelo
+uint16_t dnScore, dnInterval;
+uint32_t dnTick;
+bool     dnAlive, dnPaused;
+
+void dn_render() {
+  memset(snkGrid, 0, SNK_W * SNK_H);
+  for (uint8_t x = 0; x < DN_W; x++) {
+    if (dnObst[x] >= 1) snkGrid[3 * SNK_W + x] = 1;
+    if (dnObst[x] == 2) snkGrid[2 * SNK_W + x] = 1;
+  }
+  snkGrid[dnDinoY * SNK_W + 2] = 2;
+  snk_render();
+}
+void dn_over() {
+  dnAlive = false;
+  bool record = (dnScore > cfg.dinoHi);
+  if (record) { cfg.dinoHi = dnScore; cfgSave(); }
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(F("Fin! Puntos ")); lcd.print(dnScore);
+  lcd.setCursor(0, 1);
+  if (record) { lcd.print(F("RECORD! OK=otra")); beep(4, 60, 70); }
+  else { lcd.print(F("Rec ")); lcd.print(cfg.dinoHi);
+         lcd.print(F("  OK=otra")); sndError(); }
+}
+void dn_reset() {
+  memset(dnObst, 0, sizeof(dnObst));
+  dnDinoY = 3; dnJump = -1; dnGap = 8;
+  dnScore = 0; dnInterval = 220;
+  dnTick = millis(); dnAlive = true; dnPaused = false;
+  lcd.clear();
+  dn_render();
+}
+void dn_step() {
+  for (uint8_t x = 0; x < DN_W - 1; x++) dnObst[x] = dnObst[x + 1];
+  dnObst[DN_W - 1] = 0;
+
+  if (dnGap) dnGap--;
+  else if (random(100) < 28) {
+    dnObst[DN_W - 1] = (random(100) < 30) ? 2 : 1;   // alto o bajo
+    dnGap = 4 + random(4);                            // separacion minima
+  }
+
+  if (dnJump >= 0) {
+    dnDinoY = DN_ARC[dnJump];
+    dnJump++;
+    if (dnJump >= DN_AIR) { dnJump = -1; dnDinoY = 3; }
+  }
+
+  uint8_t o = dnObst[2];
+  if ((o == 1 && dnDinoY == 3) || (o == 2 && dnDinoY >= 2)) { dn_over(); return; }
+
+  dnScore++;
+  if (dnScore % 40 == 0 && dnInterval > 90) dnInterval -= 8;
+  dn_render();
+}
+
+void dino_enter() {
+  snk_loadGlyphs();
+  randomSeed(micros());
+  dn_reset();
+}
+void dino_loop() {
+  if (dnAlive) {
+    if (press(B_UP) && dnJump < 0) { dnJump = 0; beep(1, 20, 0); }
+    if (click(B_OK)) {
+      dnPaused = !dnPaused;
+      sndMove();
+      if (dnPaused) { lcd.setCursor(0, 0); lcd.print(F("  PAUSA  ")); }
+      else { dnTick = millis(); dn_render(); }
+    }
+    if (!dnPaused && millis() - dnTick >= dnInterval) {
+      dnTick = millis();
+      dn_step();
+    }
+  } else {
+    if (click(B_OK)) dn_reset();
+  }
+  if (longP(B_OK)) { sndBack(); switchTo(APP_MENU); }
+}
+
+/* ========================= SIMON ==========================
+   Con un zumbador ACTIVO no hay notas, solo encendido y apagado,
+   asi que cada boton se identifica por su RITMO: uno corto, dos
+   cortos, uno largo, tres muy cortos. Si algun dia pones un
+   zumbador pasivo, cambia PASSIVE_BUZZER a 1 arriba del archivo
+   y pasan a ser cuatro notas, como el Simon original.
+   =========================================================== */
+#define SM_MAX 32
+enum { SM_IDLE = 0, SM_SHOW, SM_GAP, SM_WAIT, SM_NEXT, SM_OVER };
+
+uint8_t  smSeq[SM_MAX];
+uint8_t  smLen, smPos, smShow, smState;
+uint32_t smT;
+uint16_t smDur;
+
+#if PASSIVE_BUZZER
+const uint16_t SM_FREQ[4] = { 330, 262, 392, 494 };
+#else
+const uint8_t  SM_N[4]   = {   1,   2,   1,   3 };
+const uint16_t SM_ON[4]  = { 130,  60, 320,  45 };
+const uint16_t SM_OFF[4] = {   0,  90,   0,  60 };
+#endif
+
+// Emite la senal del boton b y devuelve lo que dura, para que la
+// maquina de estados sepa cuando seguir sin bloquear.
+uint16_t sm_signal(uint8_t b) {
+#if PASSIVE_BUZZER
+  if (!isMuted()) tone(PIN_BUZZER, SM_FREQ[b], 280);
+  return 300;
+#else
+  beep(SM_N[b], SM_ON[b], SM_OFF[b]);
+  return SM_N[b] * (SM_ON[b] + SM_OFF[b]) + 130;
+#endif
+}
+void sm_name(uint8_t b) {
+  char buf[17];
+  strncpy_P(buf, (PGM_P)pgm_read_word(&RF_NAMES[b]), 16);
+  buf[16] = '\0';
+  printCentered(0, buf);
+}
+void sm_drawIdle() {
+  lcd.clear();
+  printAt(0, 0, F("SIMON"));
+  lcd.setCursor(0, 1);
+  if (cfg.simonHi) { lcd.print(F("Rec ")); lcd.print(cfg.simonHi);
+                     lcd.print(F("  OK=ir")); }
+  else               lcd.print(F("OK = empezar"));
+}
+void sm_over() {
+  smState = SM_OVER;
+  uint8_t score = smLen ? smLen - 1 : 0;
+  bool record = (score > cfg.simonHi);
+  if (record) { cfg.simonHi = score; cfgSave(); }
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(F("Fallo! Ronda ")); lcd.print(score);
+  lcd.setCursor(0, 1);
+  if (record) { lcd.print(F("RECORD! OK=otra")); beep(4, 60, 70); }
+  else { lcd.print(F("Rec ")); lcd.print(cfg.simonHi);
+         lcd.print(F("  OK=otra")); sndError(); }
+}
+void sm_grow() {
+  if (smLen < SM_MAX) smSeq[smLen++] = random(4);
+  smShow = 0; smPos = 0;
+  smState = SM_NEXT; smT = millis();
+  lcd.clear();
+  lcd.setCursor(0, 1); lcd.print(F("Ronda ")); lcd.print(smLen);
+}
+
+void simon_enter() {
+  randomSeed(micros());
+  smState = SM_IDLE; smLen = 0;
+  sm_drawIdle();
+}
+void simon_loop() {
+  switch (smState) {
+    case SM_IDLE:
+      if (click(B_OK)) { smLen = 0; randomSeed(micros()); sm_grow(); }
+      break;
+
+    case SM_NEXT:                       // pausa antes de reproducir
+      if (millis() - smT > 700) smState = SM_SHOW;
+      break;
+
+    case SM_SHOW:                       // emite un elemento
+      sm_name(smSeq[smShow]);
+      smDur = sm_signal(smSeq[smShow]);
+      smT = millis();
+      smState = SM_GAP;
+      break;
+
+    case SM_GAP:                        // espera a que termine
+      if (millis() - smT > smDur) {
+        clearRow(0);
+        smShow++;
+        if (smShow >= smLen) {
+          smState = SM_WAIT; smT = millis();
+          printCentered(0, "Tu turno");
+        } else smState = SM_SHOW;
+      }
+      break;
+
+    case SM_WAIT: {
+      uint8_t got = 255;
+      for (uint8_t i = 0; i < 4; i++) if (press(RF_BTN[i])) got = i;
+      if (got != 255) {
+        smT = millis();
+        if (got == smSeq[smPos]) {
+          sm_name(got);
+          sm_signal(got);
+          smPos++;
+          if (smPos >= smLen) sm_grow();
+        } else sm_over();
+      } else if (millis() - smT > 5000) sm_over();   // se acabo el tiempo
+      break;
+    }
+
+    case SM_OVER:
+      if (click(B_OK)) { smState = SM_IDLE; sm_drawIdle(); }
+      break;
+  }
+  if (longP(B_OK)) { sndBack(); switchTo(APP_MENU); }
+}
+
 /* ======================= SISTEMA ==========================
    Voltaje real de alimentacion, temperatura del chip, RAM libre
    y tiempo encendido. Sin un solo componente adicional: todo
@@ -1036,6 +1264,8 @@ const App APPS[APP_COUNT] = {
   { home_enter,     home_loop     },   // APP_HOME
   { menu_enter,     menu_loop     },   // APP_MENU
   { snake_enter,    snake_loop    },   // APP_SNAKE
+  { dino_enter,     dino_loop     },   // APP_DINO
+  { simon_enter,    simon_loop    },   // APP_SIMON
   { reflex_enter,   reflex_loop   },   // APP_REFLEX
   { pomo_enter,     pomo_loop     },   // APP_POMO
   { notes_enter,    notes_loop    },   // APP_NOTES

@@ -24,6 +24,7 @@
 - **Reloj por software** calibrable en milisegundos por hora, sin necesidad de un módulo RTC.
 - **Retroiluminación** regulable por PWM con apagado automático por inactividad.
 - **Firmware sin bloqueos**: ni un `delay()` en el bucle principal.
+- **Carcasa imprimible en 3D**, con el modelo editable de Fusion 360 y el STL listo para laminar.
 
 ---
 
@@ -99,6 +100,31 @@ Los pines **A4** y **A5** se dejan libres a propósito. Son el bus I²C, de form
 
 ---
 
+## Carcasa
+
+<p align="center">
+  <img src="assets/carcasa.png" alt="Render de la carcasa" width="480">
+</p>
+
+| Archivo                       | Formato      | Para qué sirve                          |
+|-------------------------------|--------------|-----------------------------------------|
+| [`hardware/carcasa.f3d`](hardware/carcasa.f3d) | Fusion 360   | Fuente editable, con el historial de diseño |
+| [`hardware/carcasa.stl`](hardware/carcasa.stl) | Malla STL    | Listo para laminar e imprimir           |
+
+GitHub renderiza los STL directamente en el navegador, así que puedes girar la pieza sin descargar nada: solo hay que pinchar en el archivo.
+
+### Ajustes de impresión
+
+| Parámetro          | Valor        |
+|--------------------|--------------|
+| Material           | PLA          |
+| Altura de capa     | 0,2 mm       |
+| Relleno            | 20 %         |
+| Soportes           | No           |
+| Perímetros         | 3            |
+
+---
+
 ## Cargar el firmware
 
 Solo hace falta la librería `LiquidCrystal`, que viene incluida en el IDE de Arduino.
@@ -124,7 +150,10 @@ También puedes abrir `Consola-1602.ino` directamente en el IDE de Arduino y sub
 ```
 Consola-1602/
 ├── Consola-1602.ino    # Firmware completo
-├── assets/             # GIF de la demo y fotos del montaje
+├── hardware/
+│   ├── carcasa.f3d     # Modelo editable de Fusion 360
+│   └── carcasa.stl     # Malla lista para imprimir
+├── assets/             # GIF de la demo, render y fotos del montaje
 └── .github/workflows/
     └── build.yml       # Compilación automática para arduino:avr:uno
 ```
@@ -179,4 +208,4 @@ Creado por [zoraizmahmood](https://github.com/zoraizmahmood).
 
 ## Licencia
 
-[MIT](LICENSE)
+El firmware, bajo licencia [MIT](LICENSE). La carcasa de `hardware/`, bajo [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.es).

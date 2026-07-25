@@ -16,6 +16,9 @@ jobs:
         uses: arduino/compile-sketches@v1
         with:
           fqbn: arduino:avr:uno
+          # arduino-cli no trae LiquidCrystal preinstalada como el IDE
+          libraries: |
+            - name: LiquidCrystal
           sketch-paths: |
             - ./
           enable-warnings-report: true
